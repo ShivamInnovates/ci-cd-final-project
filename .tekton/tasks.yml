@@ -1,0 +1,63 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: cleanup
+spec:
+  description: >-
+    This task will clean up a workspace by deleting all the files
+    to prevent permission and stale artifact issues with subsequent steps.
+  workspaces:
+    - name: source
+  steps:
+    - name: remove
+      image: alpine:3
+      env:
+        - name: WORKSPACE_SOURCE_PATH
+          value: $(workspaces.source.path)
+      workingDir: $(workspaces.source.path)
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+      script: |
+        set -eu
+        echo "Removing all files from ${WORKSPACE_SOURCE_PATH} ..."
+        if [ -d "${WORKSPACE_SOURCE_PATH}" ] ; then
+          rm -rf "${WORKSPACE_SOURCE_PATH:?}"/*
+        fi
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: nose
+spec:
+  description: >-
+    This task runs unit tests using the nose testing framework for Python applications.
+  workspaces:
+    - name: source
+      description: Workspace containing the application source code
+  params:
+    - name: args
+      type: string
+      description: Arguments to pass to nose
+      default: "-v --with-spec --spec-color"
+  steps:
+    - name: run-nosetests
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: DATABASE_URI
+          value: "sqlite:////tmp/test.db"
+      script: |
+        #!/bin/bash
+        set -e
+        echo "Upgrading pip and wheel..."
+        python -m pip install --upgrade pip wheel
+        pip install "setuptools<70"
+        echo "Installing requirements..."
+        if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+        fi
+        echo "Running nosetests..."
+        nosetests $(params.args)
